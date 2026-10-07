@@ -1,0 +1,21 @@
+# Maintainer: openOODA-tools <ops@openooda.org>
+pkgname=oodiff3-bin
+_pkgname=oodiff3
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="3-way file comparison engine reconciling conflicts between common ancestor and branches."
+arch=('x86_64')
+url="https://github.com/openOODA-tools/oodiff3"
+license=('Apache-2.0')
+depends=('glibc')
+provides=('oodiff3')
+conflicts=('oodiff3')
+source_x86_64=("${url}/releases/download/v${pkgver}/oodiff3-linux-x86_64"
+               "uninstall.sh::https://raw.githubusercontent.com/openOODA-tools/${_pkgname}/v${pkgver}/uninstall.sh")
+sha256sums_x86_64=('SKIP'
+                   'SKIP')
+
+package() {
+    install -Dm755 "${srcdir}/oodiff3-linux-x86_64" "${pkgdir}/usr/bin/oodiff3"
+    install -Dm755 uninstall.sh "${pkgdir}/usr/bin/oodiff3-uninstall"
+}
