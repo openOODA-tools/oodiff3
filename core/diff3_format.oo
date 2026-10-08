@@ -1,0 +1,81 @@
+// # Diff3 Formatter
+//
+// Logline: Formats reconciled 3-way chunks into standard POSIX/GNU diff3 output.
+//
+// Setup: Emits traditional command headers (====, ====1, ====2, ====3) and line ranges.
+//
+// Beats:
+//   1. Map chunk types to diff3 difference markers.
+//   2. Calculate 1-indexed file coordinate intervals.
+//   3. Indent line blocks with spaces or initial tab.
+//   4. Assemble cohesive comparison stream.
+
+import "core/diff3_types.oo";
+
+fn format_range(file_num: Int, start: Int, count: Int) -> String {
+    let fn_str: String = file_num.to_string() + ":";
+    if count <= 0 {
+        return fn_str + start.to_string() + "a\n";
+    }
+    if count == 1 {
+        return fn_str + (start + 1).to_string() + "c\n";
+    }
+    return fn_str + (start + 1).to_string() + "," + (start + count).to_string() + "c\n";
+}
+
+fn append_lines(dest: String, lines: List[String], indent: String) -> String {
+    let mut out: String = dest;
+    let n: Int = list_len(lines);
+    let mut i: Int = 0;
+    while i < n {
+        out = out + indent + list_get(lines, i) + "\n";
+        i = i + 1;
+    }
+    return out;
+}
+
+pub fn render_diff3_format(chunks: List[Chunk3], initial_tab: Bool) -> String {
+    let indent: String = if initial_tab { "\t" } else { "  " };
+    let mut out: String = "";
+    let n: Int = list_len(chunks);
+    let mut i: Int = 0;
+
+    while i < n {
+        let c: Chunk3 = list_get(chunks, i);
+        if c.kind == "MATCH" {
+            // Unchanged across all three files; skipped in standard diff3 output
+        } else if c.kind == "DIFF_A" {
+            out = out + "====1\n";
+            out = out + format_range(1, c.a_start, c.a_count);
+            out = append_lines(out, c.a_lines, indent);
+            out = out + format_range(2, c.base_start, c.base_count);
+            out = out + format_range(3, c.b_start, c.b_count);
+            out = append_lines(out, c.base_lines, indent);
+        } else if c.kind == "DIFF_B" {
+            out = out + "====3\n";
+            out = out + format_range(1, c.a_start, c.a_count);
+            out = out + format_range(2, c.base_start, c.base_count);
+            out = append_lines(out, c.base_lines, indent);
+            out = out + format_range(3, c.b_start, c.b_count);
+            out = append_lines(out, c.b_lines, indent);
+        } else if c.kind == "DIFF_BOTH_SAME" {
+            out = out + "====2\n";
+            out = out + format_range(1, c.a_start, c.a_count);
+            out = out + format_range(3, c.b_start, c.b_count);
+            out = append_lines(out, c.a_lines, indent);
+            out = out + format_range(2, c.base_start, c.base_count);
+            out = append_lines(out, c.base_lines, indent);
+        } else if c.kind == "DIFF_CONFLICT" {
+            out = out + "====\n";
+            out = out + format_range(1, c.a_start, c.a_count);
+            out = append_lines(out, c.a_lines, indent);
+            out = out + format_range(2, c.base_start, c.base_count);
+            out = append_lines(out, c.base_lines, indent);
+            out = out + format_range(3, c.b_start, c.b_count);
+            out = append_lines(out, c.b_lines, indent);
+        }
+        i = i + 1;
+    }
+
+    return out;
+}

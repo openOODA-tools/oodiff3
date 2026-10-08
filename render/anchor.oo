@@ -1,0 +1,45 @@
+// # Render Module Anchor
+//
+// Logline: Unified entry point and substrate verification anchor for diff3 renderers.
+//
+// Setup: Exports ANSI stylers, JSON streaming, and synthetic demo generators.
+//
+// Beats:
+//   1. Re-export render modules and visual formatters.
+//   2. Run internal anchor tests validating ANSI styling and JSON streaming.
+//   3. Assert proper JSON syntax and color token generation.
+
+import "core/diff3_types.oo";
+import "render/render_ansi.oo";
+import "render/render_json.oo";
+import "render/synthetic_demo.oo";
+
+pub fn run_render_tests() -> Bool {
+    return test_render();
+}
+
+pub fn test_render() -> Bool {
+    let raw: String = "test_string";
+    let colored: String = style_add(raw, true);
+    if !str_contains(colored, "\x1b[32m") { return false; }
+
+    let uncolored: String = style_add(raw, false);
+    if uncolored != raw { return false; }
+
+    let mut lines: List[String] = list_new();
+    lines = list_push(lines, "item 1");
+    lines = list_push(lines, "item \"quoted\"");
+    let json_arr: String = string_list_to_json(lines);
+    if !str_contains(json_arr, "\\\"quoted\\\"") { return false; }
+
+    let mut chunks: List[Chunk3] = list_new();
+    chunks = list_push(chunks, make_chunk3("MATCH", 0, 1, 0, 1, 0, 1, lines, lines, lines));
+    let json_stream: String = render_json_stream(chunks);
+    if !str_contains(json_stream, "\"tool\":\"oodiff3\"") { return false; }
+    if !str_contains(json_stream, "\"total_chunks\":1") { return false; }
+
+    let demo: String = run_synthetic_demo(false, false);
+    if !str_contains(demo, "SOVEREIGN 3-WAY RECONCILIATION SHOWCASE") { return false; }
+
+    return true;
+}

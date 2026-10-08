@@ -1,0 +1,187 @@
+// # Diff3 Reconciliation Engine
+//
+// Logline: Reconciles ancestral baseline with divergent branch hunks into aligned 3-way blocks.
+//
+// Setup: Merges delta streams against base file into unified Chunk3 sequence.
+//
+// Beats:
+//   1. Ingest hunks from base-to-mine and base-to-yours LCS diffs.
+//   2. Identify non-overlapping spans and emit clean match segments.
+//   3. Union overlapping edit regions across both divergent branches.
+//   4. Classify chunks into clean A, clean B, false conflict, or true conflict.
+
+import "core/diff3_types.oo";
+import "core/lcs_diff.oo";
+
+pub fn lists_equal(xs: List[String], ys: List[String]) -> Bool {
+    let nx: Int = list_len(xs);
+    let ny: Int = list_len(ys);
+    if nx != ny { return false; }
+    let mut i: Int = 0;
+    while i < nx {
+        if list_get(xs, i) != list_get(ys, i) { return false; }
+        i = i + 1;
+    }
+    return true;
+}
+
+fn copy_slice(lines: List[String], start_idx: Int, end_idx: Int) -> List[String] {
+    let mut out: List[String] = list_new();
+    let mut i: Int = start_idx;
+    while i < end_idx && i < list_len(lines) {
+        out = list_push(out, list_get(lines, i));
+        i = i + 1;
+    }
+    return out;
+}
+
+fn append_list(dest: List[String], src: List[String]) -> List[String] {
+    let mut res: List[String] = dest;
+    let n: Int = list_len(src);
+    let mut i: Int = 0;
+    while i < n {
+        res = list_push(res, list_get(src, i));
+        i = i + 1;
+    }
+    return res;
+}
+
+pub fn has_conflicts(chunks: List[Chunk3]) -> Bool {
+    let n: Int = list_len(chunks);
+    let mut i: Int = 0;
+    while i < n {
+        if is_conflict(list_get(chunks, i)) {
+            return true;
+        }
+        i = i + 1;
+    }
+    return false;
+}
+
+pub fn reconcile_3way(base: List[String], mine: List[String], yours: List[String]) -> List[Chunk3] {
+    let hunks_a: List[Hunk] = compute_lcs_hunks(base, mine);
+    let hunks_b: List[Hunk] = compute_lcs_hunks(base, yours);
+    let nb: Int = list_len(base);
+    let na_h: Int = list_len(hunks_a);
+    let nb_h: Int = list_len(hunks_b);
+
+    let mut chunks: List[Chunk3] = list_new();
+    let mut cur_b: Int = 0;
+    let mut ia: Int = 0;
+    let mut ib: Int = 0;
+    let mut cur_a_line: Int = 0;
+    let mut cur_b_line: Int = 0;
+
+    while cur_b < nb || ia < na_h || ib < nb_h {
+        let mut next_event: Int = nb;
+        if ia < na_h && list_get(hunks_a, ia).base_start < next_event {
+            next_event = list_get(hunks_a, ia).base_start;
+        }
+        if ib < nb_h && list_get(hunks_b, ib).base_start < next_event {
+            next_event = list_get(hunks_b, ib).base_start;
+        }
+
+        if cur_b < next_event {
+            let m_lines: List[String] = copy_slice(base, cur_b, next_event);
+            let m_count: Int = next_event - cur_b;
+            chunks = list_push(chunks, make_chunk3(
+                "MATCH",
+                cur_b, m_count,
+                cur_a_line, m_count,
+                cur_b_line, m_count,
+                m_lines, m_lines, m_lines
+            ));
+            cur_a_line = cur_a_line + m_count;
+            cur_b_line = cur_b_line + m_count;
+            cur_b = next_event;
+        }
+
+        if cur_b >= nb && ia >= na_h && ib >= nb_h {
+            return chunks;
+        }
+
+        let union_start: Int = cur_b;
+        let mut union_end: Int = cur_b;
+        let mut consumed_a: List[Hunk] = list_new();
+        let mut consumed_b: List[Hunk] = list_new();
+
+        let mut changed: Bool = true;
+        while changed {
+            changed = false;
+            if ia < na_h {
+                let ha: Hunk = list_get(hunks_a, ia);
+                if ha.base_start < union_end || (ha.base_start == union_end && (union_start == union_end || ha.base_count > 0)) {
+                    consumed_a = list_push(consumed_a, ha);
+                    let ha_end: Int = ha.base_start + ha.base_count;
+                    if ha_end > union_end { union_end = ha_end; }
+                    ia = ia + 1;
+                    changed = true;
+                }
+            }
+            if ib < nb_h {
+                let hb: Hunk = list_get(hunks_b, ib);
+                if hb.base_start < union_end || (hb.base_start == union_end && (union_start == union_end || hb.base_count > 0)) {
+                    consumed_b = list_push(consumed_b, hb);
+                    let hb_end: Int = hb.base_start + hb.base_count;
+                    if hb_end > union_end { union_end = hb_end; }
+                    ib = ib + 1;
+                    changed = true;
+                }
+            }
+        }
+
+        let mut a_lines: List[String] = list_new();
+        let mut idx_a: Int = union_start;
+        let mut ka: Int = 0;
+        while ka < list_len(consumed_a) {
+            let ha: Hunk = list_get(consumed_a, ka);
+            a_lines = append_list(a_lines, copy_slice(base, idx_a, ha.base_start));
+            a_lines = append_list(a_lines, ha.repl_lines);
+            idx_a = ha.base_start + ha.base_count;
+            ka = ka + 1;
+        }
+        a_lines = append_list(a_lines, copy_slice(base, idx_a, union_end));
+
+        let mut b_lines: List[String] = list_new();
+        let mut idx_b: Int = union_start;
+        let mut kb: Int = 0;
+        while kb < list_len(consumed_b) {
+            let hb: Hunk = list_get(consumed_b, kb);
+            b_lines = append_list(b_lines, copy_slice(base, idx_b, hb.base_start));
+            b_lines = append_list(b_lines, hb.repl_lines);
+            idx_b = hb.base_start + hb.base_count;
+            kb = kb + 1;
+        }
+        b_lines = append_list(b_lines, copy_slice(base, idx_b, union_end));
+
+        let base_slice: List[String] = copy_slice(base, union_start, union_end);
+        let has_a: Bool = list_len(consumed_a) > 0;
+        let has_b: Bool = list_len(consumed_b) > 0;
+
+        let kind: String = if has_a && !has_b {
+            "DIFF_A"
+        } else if has_b && !has_a {
+            "DIFF_B"
+        } else if lists_equal(a_lines, b_lines) {
+            "DIFF_BOTH_SAME"
+        } else {
+            "DIFF_CONFLICT"
+        };
+
+        let a_cnt: Int = list_len(a_lines);
+        let b_cnt: Int = list_len(b_lines);
+        chunks = list_push(chunks, make_chunk3(
+            kind,
+            union_start, union_end - union_start,
+            cur_a_line, a_cnt,
+            cur_b_line, b_cnt,
+            base_slice, a_lines, b_lines
+        ));
+
+        cur_a_line = cur_a_line + a_cnt;
+        cur_b_line = cur_b_line + b_cnt;
+        cur_b = union_end;
+    }
+
+    return chunks;
+}

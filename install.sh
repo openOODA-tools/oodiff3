@@ -4,7 +4,7 @@
 # "3-way file comparison engine reconciling conflicts between common ancestor and branches."
 #
 # Usage:
-#   curl -fsSL https://openooda-toodiff3.github.io/oodiff3/install.sh | bash
+#   curl -fsSL https://tools.openooda.org/oodiff3/install.sh | bash
 #
 # Options:
 #   --prefix <dir>       Installation directory (default: /usr/local/bin or ~/.local/bin)
@@ -18,10 +18,10 @@
 
 set -eu
 
-REPO="openOODA-toodiff3/oodiff3"
+REPO="openOODA-tools/oodiff3"
 GITHUB_URL="https://github.com/${REPO}"
-VERSION_PIN="v0.1.0"
-RAW_VERSION="0.1.0"
+VERSION_PIN="v0.2.0"
+RAW_VERSION="0.2.0"
 
 if [ -t 1 ] && [ "${NO_COLOR:-}" = "" ] && [ "${TERM:-dumb}" != "dumb" ]; then
     CYAN="\033[38;5;51m"

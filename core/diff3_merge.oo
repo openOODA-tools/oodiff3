@@ -1,0 +1,60 @@
+// # Diff3 Merge Renderer
+//
+// Logline: Generates unified merged output with conflict markers between branches.
+//
+// Setup: Reconciles chunk sequence into single output stream, tagging true conflicts.
+//
+// Beats:
+//   1. Resolve labels for mine, baseline, and yours operands.
+//   2. Output clean additions and false conflicts seamlessly.
+//   3. Insert standard 2-way (-E) or 3-way (-A) conflict marker blocks.
+//   4. Deliver synthesized output to caller.
+
+import "core/diff3_types.oo";
+
+fn append_lines(dest: String, lines: List[String]) -> String {
+    let mut out: String = dest;
+    let n: Int = list_len(lines);
+    let mut i: Int = 0;
+    while i < n {
+        out = out + list_get(lines, i) + "\n";
+        i = i + 1;
+    }
+    return out;
+}
+
+pub fn render_merge(chunks: List[Chunk3], opts: Diff3Opts) -> String {
+    let lbl1: String = if opts.label1 != "" { opts.label1 } else { opts.file1 };
+    let lbl2: String = if opts.label2 != "" { opts.label2 } else { opts.file2 };
+    let lbl3: String = if opts.label3 != "" { opts.label3 } else { opts.file3 };
+
+    let mut out: String = "";
+    let n: Int = list_len(chunks);
+    let mut i: Int = 0;
+
+    while i < n {
+        let c: Chunk3 = list_get(chunks, i);
+        if c.kind == "MATCH" {
+            out = append_lines(out, c.base_lines);
+        } else if c.kind == "DIFF_A" {
+            out = append_lines(out, c.a_lines);
+        } else if c.kind == "DIFF_B" {
+            out = append_lines(out, c.b_lines);
+        } else if c.kind == "DIFF_BOTH_SAME" {
+            out = append_lines(out, c.a_lines);
+        } else if c.kind == "DIFF_CONFLICT" {
+            out = out + "<<<<<<< " + lbl1 + "\n";
+            out = append_lines(out, c.a_lines);
+            if opts.overlap_mode != "show_overlap" {
+                out = out + "||||||| " + lbl2 + "\n";
+                out = append_lines(out, c.base_lines);
+            }
+            out = out + "=======\n";
+            out = append_lines(out, c.b_lines);
+            out = out + ">>>>>>> " + lbl3 + "\n";
+        }
+        i = i + 1;
+    }
+
+    return out;
+}

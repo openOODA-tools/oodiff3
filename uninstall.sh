@@ -4,7 +4,7 @@
 # "Removes oodiff3 binary, package installations, and cache."
 #
 # Usage:
-#   curl -fsSL https://openooda-toodiff3.github.io/oodiff3/uninstall.sh | bash
+#   curl -fsSL https://tools.openooda.org/oodiff3/uninstall.sh | bash
 #   or: ./uninstall.sh [options]
 #
 # Options:

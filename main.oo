@@ -1,32 +1,63 @@
 // # oodiff3 Main Entry Point
 //
-// Logline: 3-way file comparison engine reconciling conflicts between common ancestor and branches.
+// Logline: 3-way file comparison and merge engine reconciling ancestral baseline with branches.
 //
-// Setup: Demands explicit capability tokens and standard argument list.
+// Setup: Demands &FsReadCap, &ProcessCap, and &EnvCap tokens for capability-bounded execution.
 //
 // Beats:
-//   1. Parse command-line options and dispatch --help, --version, or --mcp.
-//   2. Execute capability-bounded oodiff3 operations.
-//   3. Format and output structured results to standard output.
+//   1. Parse command-line options and dispatch --help, --version, --test, or --mcp.
+//   2. Ingest file operands using explicit FsReadCap filesystem capability.
+//   3. Reconcile branches against base ancestor into aligned 3-way chunks.
+//   4. Render standard diff3 hunks, merged stream, ed scripts, or JSON telemetry.
+
+import "core/diff3_types.oo";
+import "core/diff3_engine.oo";
+import "core/diff3_format.oo";
+import "core/diff3_merge.oo";
+import "core/ed_script.oo";
+import "render/render_ansi.oo";
+import "render/render_json.oo";
+import "render/synthetic_demo.oo";
+import "ipc/cli_options.oo";
+import "ipc/mcp_server.oo";
+import "anchor.oo";
 
 fn render_help() -> String {
-    return "oodiff3 0.1.0 (openOODA sovereign diff & comparison)\n"
-        + "usage: oodiff3 [options] [ARGUMENTS]...\n\n"
+    return "oodiff3 0.2.0 (openOODA sovereign diff & comparison)\n"
+        + "usage: oodiff3 [options] MYFILE OLDFILE YOURFILE\n\n"
         + "3-way file comparison engine reconciling conflicts between common ancestor and branches.\n\n"
         + "Options:\n"
-        + "  -h, --help           display this help and exit\n"
-        + "  -v, --version        output version information and exit\n"
-        + "      --json           output formatted as JSON Lines\n"
-        + "      --color <WHEN>   colorize output: auto, always, never [default: auto]\n"
-        + "      --theme <NAME>   override active oote palette\n"
-        + "      --mcp            run as Model Context Protocol stdio server\n";
+        + "  -m, --merge           output actual merged file, according to -A if no other options are given\n"
+        + "  -A, --show-all        output all changes, bracketing conflicts\n"
+        + "  -E, --show-overlap    like -e, but bracket conflicts\n"
+        + "  -e, --ed              output ed script incorporating changes\n"
+        + "  -3, --easy-only       like -e, but incorporate only nonoverlapping changes\n"
+        + "  -x, --overlap-only    like -e, but incorporate only overlapping changes\n"
+        + "  -X                    like -x, but bracket conflicts\n"
+        + "  -i                    append 'w' and 'q' commands to ed scripts\n"
+        + "  -T, --initial-tab     make tabs line up by prepending a tab\n"
+        + "  -a, --text            treat all files as text\n"
+        + "  -L, --label=LABEL     use LABEL instead of file name (can be used up to 3 times)\n"
+        + "  -j, --json            output formatted as JSON Lines\n"
+        + "  -D, --demo            synthetic multi-scenario reconciliation showcase\n"
+        + "      --color <WHEN>    colorize output: auto, always, never [default: auto]\n"
+        + "      --theme <NAME>    override active oote palette\n"
+        + "      --mcp             run as Model Context Protocol stdio server\n"
+        + "      --test            run internal verification anchor suite\n"
+        + "  -h, --help            display this help and exit\n"
+        + "  -v, --version         output version information and exit\n";
 }
 
 fn render_version() -> String {
-    return "oodiff3 0.1.0 (openOODA sovereign diff & comparison)\n";
+    return "oodiff3 0.2.0 (openOODA sovereign diff & comparison)\n";
 }
 
-fn main(args: List[String]) -> Int {
+fn main(
+    fr: &FsReadCap,
+    pr: &ProcessCap,
+    env: &EnvCap,
+    args: List[String]
+) -> Int {
     let num_args: Int = list_len(args);
     let mut i: Int = 0;
 
@@ -40,13 +71,80 @@ fn main(args: List[String]) -> Int {
             print(render_version());
             return 0;
         }
+        if arg == "--test" {
+            if run_all_tests() {
+                println("oodiff3: internal anchor tests PASSED");
+                return 0;
+            } else {
+                println("oodiff3: internal anchor tests FAILED");
+                return 1;
+            }
+        }
         if arg == "--mcp" {
-            print("{\"jsonrpc\":\"2.0\",\"result\":{\"status\":\"ready\",\"tool\":\"oodiff3\"}}\n");
+            run_mcp_server(fr);
             return 0;
         }
         i = i + 1;
     }
 
-    print("oodiff3: sovereign capability-bounded utility ready\n");
+    let opts: Diff3Opts = parse_cli_args(args);
+
+    if opts.demo_mode {
+        print(run_synthetic_demo(opts.json_mode, color_enabled(opts.color_mode, false)));
+        return 0;
+    }
+
+    if opts.file1 == "" || opts.file2 == "" || opts.file3 == "" {
+        print("oodiff3: missing operand\nTry 'oodiff3 --help' for more information.\n");
+        return 2;
+    }
+
+    let r1: Result[String, String] = read_file(fr, opts.file1);
+    if !r1.is_ok() {
+        print("oodiff3: " + opts.file1 + ": No such file or directory\n");
+        return 2;
+    }
+    let r2: Result[String, String] = read_file(fr, opts.file2);
+    if !r2.is_ok() {
+        print("oodiff3: " + opts.file2 + ": No such file or directory\n");
+        return 2;
+    }
+    let r3: Result[String, String] = read_file(fr, opts.file3);
+    if !r3.is_ok() {
+        print("oodiff3: " + opts.file3 + ": No such file or directory\n");
+        return 2;
+    }
+
+    let s1: String = match r1 { Ok(s) => s, Err(_) => "" };
+    let s2: String = match r2 { Ok(s) => s, Err(_) => "" };
+    let s3: String = match r3 { Ok(s) => s, Err(_) => "" };
+
+    let mine: List[String] = split_lines(s1);
+    let base: List[String] = split_lines(s2);
+    let yours: List[String] = split_lines(s3);
+
+    let chunks: List[Chunk3] = reconcile_3way(base, mine, yours);
+    let conflicts: Bool = has_conflicts(chunks);
+
+    if opts.json_mode {
+        print(render_json_stream(chunks));
+        return if conflicts { 1 } else { 0 };
+    }
+
+    if opts.merge_mode {
+        let merged: String = render_merge(chunks, opts);
+        print(merged);
+        return if conflicts { 1 } else { 0 };
+    }
+
+    if opts.overlap_mode != "default" {
+        let ed_out: String = render_ed_script(chunks, opts);
+        print(ed_out);
+        let exits_one: Bool = conflicts && (opts.overlap_mode == "show_all" || opts.overlap_mode == "show_overlap");
+        return if exits_one { 1 } else { 0 };
+    }
+
+    let formatted: String = render_diff3_format(chunks, opts.initial_tab);
+    print(formatted);
     return 0;
 }

@@ -1,7 +1,7 @@
 # Maintainer: openOODA-tools <ops@openooda.org>
 pkgname=oodiff3-bin
 _pkgname=oodiff3
-pkgver=0.1.0
+pkgver=0.2.0
 pkgrel=1
 pkgdesc="3-way file comparison engine reconciling conflicts between common ancestor and branches."
 arch=('x86_64')

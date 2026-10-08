@@ -1,0 +1,51 @@
+// # IPC Module Anchor
+//
+// Logline: Unified entry point and substrate verification anchor for diff3 IPC interfaces.
+//
+// Setup: Exports CLI options parser, JSON field extraction, and streaming MCP server.
+//
+// Beats:
+//   1. Re-export IPC structures, parsers, and MCP request handlers.
+//   2. Run internal anchor tests validating CLI options and JSON field parsing.
+//   3. Assert MCP initialize and tool dispatch responses conform to specification.
+
+import "core/diff3_types.oo";
+import "ipc/json_field.oo";
+import "ipc/cli_options.oo";
+import "ipc/mcp_server.oo";
+
+pub fn run_ipc_tests() -> Bool {
+    return test_ipc();
+}
+
+pub fn test_ipc() -> Bool {
+    let mut args: List[String] = list_new();
+    args = list_push(args, "-m");
+    args = list_push(args, "-L");
+    args = list_push(args, "MY_LABEL");
+    args = list_push(args, "file_a.txt");
+    args = list_push(args, "file_b.txt");
+    args = list_push(args, "file_c.txt");
+
+    let opts: Diff3Opts = parse_cli_args(args);
+    if !opts.merge_mode { return false; }
+    if opts.label1 != "MY_LABEL" { return false; }
+    if opts.file1 != "file_a.txt" { return false; }
+    if opts.file2 != "file_b.txt" { return false; }
+    if opts.file3 != "file_c.txt" { return false; }
+
+    let sample_json: String = "{\"name\":\"diff3_merge\",\"flag\":true,\"count\":42}";
+    if json_extract_str_field(sample_json, "name") != "diff3_merge" { return false; }
+    if !json_extract_bool_field(sample_json, "flag", false) { return false; }
+    if json_extract_int_field(sample_json, "count", 0) != 42 { return false; }
+
+    let init_resp: String = render_mcp_init("1");
+    if !str_contains(init_resp, "\"name\":\"oodiff3\"") { return false; }
+    if !str_contains(init_resp, "\"version\":\"0.2.0\"") { return false; }
+
+    let list_resp: String = render_mcp_tools_list("2");
+    if !str_contains(list_resp, "diff3_merge") { return false; }
+    if !str_contains(list_resp, "diff3_demo") { return false; }
+
+    return true;
+}

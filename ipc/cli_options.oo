@@ -1,0 +1,96 @@
+// # CLI Options Parser
+//
+// Logline: Command-line argument parsing and flag dispatcher for oodiff3 operations.
+//
+// Setup: Parses argument strings into Diff3Opts structure, extracting flags and operands.
+//
+// Beats:
+//   1. Traverse argument list extracting short and long POSIX flags.
+//   2. Configure merge, overlap, ed, and display modes.
+//   3. Ingest custom labels (-L) and operand file paths.
+//   4. Deliver initialized configuration structure.
+
+import "core/diff3_types.oo";
+
+pub fn parse_cli_args(args: List[String]) -> Diff3Opts {
+    let mut opts: Diff3Opts = default_diff3_opts();
+    let n: Int = list_len(args);
+    let mut i: Int = 0;
+    let mut pos: List[String] = list_new();
+
+    while i < n {
+        let arg: String = list_get(args, i);
+        if arg == "-m" || arg == "--merge" {
+            opts.merge_mode = true;
+        } else if arg == "-A" || arg == "--show-all" {
+            opts.overlap_mode = "show_all";
+        } else if arg == "-E" || arg == "--show-overlap" {
+            opts.overlap_mode = "show_overlap";
+        } else if arg == "-e" || arg == "--ed" {
+            opts.overlap_mode = "ed";
+        } else if arg == "-3" || arg == "--easy-only" {
+            opts.overlap_mode = "easy_only";
+        } else if arg == "-x" || arg == "--overlap-only" {
+            opts.overlap_mode = "overlap_only";
+        } else if arg == "-X" {
+            opts.overlap_mode = "bracket_overlap";
+        } else if arg == "-i" {
+            opts.append_wq = true;
+        } else if arg == "-T" || arg == "--initial-tab" {
+            opts.initial_tab = true;
+        } else if arg == "-a" || arg == "--text" {
+            opts.text_mode = true;
+        } else if arg == "-j" || arg == "--json" {
+            opts.json_mode = true;
+        } else if arg == "-D" || arg == "--demo" {
+            opts.demo_mode = true;
+        } else if arg == "-L" || arg == "--label" {
+            if i + 1 < n {
+                i = i + 1;
+                let val: String = list_get(args, i);
+                if opts.label1 == "" {
+                    opts.label1 = val;
+                } else if opts.label2 == "" {
+                    opts.label2 = val;
+                } else if opts.label3 == "" {
+                    opts.label3 = val;
+                }
+            }
+        } else if str_starts_with(arg, "--label=") {
+            let val: String = str_slice(arg, 8, chars_len(arg));
+            if opts.label1 == "" {
+                opts.label1 = val;
+            } else if opts.label2 == "" {
+                opts.label2 = val;
+            } else if opts.label3 == "" {
+                opts.label3 = val;
+            }
+        } else if arg == "--color" {
+            if i + 1 < n {
+                i = i + 1;
+                opts.color_mode = list_get(args, i);
+            }
+        } else if str_starts_with(arg, "--color=") {
+            opts.color_mode = str_slice(arg, 8, chars_len(arg));
+        } else if arg == "--theme" {
+            if i + 1 < n {
+                i = i + 1;
+                opts.theme_name = list_get(args, i);
+            }
+        } else if str_starts_with(arg, "--theme=") {
+            opts.theme_name = str_slice(arg, 8, chars_len(arg));
+        } else if str_starts_with(arg, "--diff-program=") {
+            // Ignored for compatibility
+        } else if !str_starts_with(arg, "-") {
+            pos = list_push(pos, arg);
+        }
+        i = i + 1;
+    }
+
+    let num_pos: Int = list_len(pos);
+    if num_pos > 0 { opts.file1 = list_get(pos, 0); }
+    if num_pos > 1 { opts.file2 = list_get(pos, 1); }
+    if num_pos > 2 { opts.file3 = list_get(pos, 2); }
+
+    return opts;
+}

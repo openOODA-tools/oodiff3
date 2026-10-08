@@ -1,13 +1,33 @@
-// # oodiff3 Root Anchor
+// # oodiff3 Root Verification Anchor
 //
-// Logline: Top-level anchor re-exporting options, core logic, render, and ipc subsystems.
+// Logline: Unified test runner aggregating verification anchors from core, render, and ipc subsystems.
 //
-// Setup: Pure shim re-exporting all oodiff3 subsystem anchors.
+// Setup: Demands no ambient authority; invokes deterministic subsystem test routines.
 //
 // Beats:
-//   1. Re-export options parsing subsystem.
-//   2. Re-export core oodiff3 execution engine.
-//   3. Re-export render formatting subsystem.
-//   4. Re-export Model Context Protocol (MCP) IPC subsystem.
+//   1. Execute core Myers LCS, 3-way reconciliation, merge, and ed script checks.
+//   2. Execute render ANSI color formatting and JSON stream serialization tests.
+//   3. Execute ipc CLI argument parsing, JSON field extraction, and MCP protocol tests.
+//   4. Return aggregate boolean test result.
 
-import "main.oo";
+import "core/anchor.oo";
+import "render/anchor.oo";
+import "ipc/anchor.oo";
+
+pub fn run_all_tests() -> Bool {
+    print("=== Starting oodiff3 Full Test Suite ===\n");
+    if !run_core_tests() {
+        print("FAIL: core tests failed\n");
+        return false;
+    }
+    if !run_render_tests() {
+        print("FAIL: render tests failed\n");
+        return false;
+    }
+    if !run_ipc_tests() {
+        print("FAIL: ipc tests failed\n");
+        return false;
+    }
+    print("=== All oodiff3 Subsystems Verified Clean ===\n");
+    return true;
+}

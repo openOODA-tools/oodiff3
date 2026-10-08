@@ -1,0 +1,187 @@
+// # Streaming MCP Server
+//
+// Logline: JSON-RPC 2.0 stdio server providing 3-way reconciliation and conflict inspection tools.
+//
+// Setup: Bridges standard input/output streaming protocol to core diff3 reconciliation engine.
+//
+// Beats:
+//   1. Handle MCP initialize handshake with server metadata and capability declarations.
+//   2. Expose tools/list catalogue with five sovereign 3-way reconciliation tools.
+//   3. Dispatch tools/call for merge, compare, conflicts, ed_script, and demo.
+//   4. Deliver streaming JSON-RPC responses over standard output.
+
+import "core/diff3_types.oo";
+import "core/diff3_engine.oo";
+import "core/diff3_format.oo";
+import "core/diff3_merge.oo";
+import "core/ed_script.oo";
+import "render/synthetic_demo.oo";
+import "render/render_json.oo";
+import "ipc/json_field.oo";
+
+pub fn split_lines(content: String) -> List[String] {
+    let mut lines: List[String] = list_new();
+    let n: Int = chars_len(content);
+    let mut start: Int = 0;
+    let mut i: Int = 0;
+    while i < n {
+        let c: String = str_slice(content, i, i + 1);
+        if c == "\n" {
+            let line: String = str_slice(content, start, i);
+            let line_clean: String = if chars_len(line) > 0 && str_slice(line, chars_len(line) - 1, chars_len(line)) == "\r" {
+                str_slice(line, 0, chars_len(line) - 1)
+            } else {
+                line
+            };
+            lines = list_push(lines, line_clean);
+            start = i + 1;
+        }
+        i = i + 1;
+    }
+    if start < n {
+        lines = list_push(lines, str_slice(content, start, n));
+    }
+    return lines;
+}
+
+fn build_error(id: String, code: Int, msg: String) -> String {
+    return "{\"jsonrpc\":\"2.0\",\"id\":" + id + ",\"error\":{\"code\":"
+        + code.to_string() + ",\"message\":\"" + json_escape(msg) + "\"}}\n";
+}
+
+fn build_tool_result(id: String, text: String) -> String {
+    return "{\"jsonrpc\":\"2.0\",\"id\":" + id + ",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\""
+        + json_escape(text) + "\"}]}}\n";
+}
+
+pub fn render_mcp_init(id: String) -> String {
+    return "{\"jsonrpc\":\"2.0\",\"id\":" + id
+        + ",\"result\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{\"tools\":{}},\"serverInfo\":{\"name\":\"oodiff3\",\"version\":\"0.2.0\"}}}\n";
+}
+
+pub fn render_mcp_tools_list(id: String) -> String {
+    let mut out: String = "{\"jsonrpc\":\"2.0\",\"id\":" + id + ",\"result\":{\"tools\":[";
+    out = out + "{\"name\":\"diff3_merge\",\"description\":\"Perform 3-way merge reconciling mine and yours against common ancestor.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"text1\":{\"type\":\"string\"},\"text2\":{\"type\":\"string\"},\"text3\":{\"type\":\"string\"},\"label1\":{\"type\":\"string\"},\"label2\":{\"type\":\"string\"},\"label3\":{\"type\":\"string\"},\"mode\":{\"type\":\"string\"}},\"required\":[\"text1\",\"text2\",\"text3\"]}}";
+    out = out + ",{\"name\":\"diff3_compare\",\"description\":\"Generate standard 3-way diff comparison hunks.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"text1\":{\"type\":\"string\"},\"text2\":{\"type\":\"string\"},\"text3\":{\"type\":\"string\"},\"initial_tab\":{\"type\":\"boolean\"}},\"required\":[\"text1\",\"text2\",\"text3\"]}}";
+    out = out + ",{\"name\":\"diff3_conflicts\",\"description\":\"Inspect only conflicting regions across divergent branches.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"text1\":{\"type\":\"string\"},\"text2\":{\"type\":\"string\"},\"text3\":{\"type\":\"string\"}},\"required\":[\"text1\",\"text2\",\"text3\"]}}";
+    out = out + ",{\"name\":\"diff3_ed_script\",\"description\":\"Generate ed editing script to reconcile file1 with file3.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"text1\":{\"type\":\"string\"},\"text2\":{\"type\":\"string\"},\"text3\":{\"type\":\"string\"},\"mode\":{\"type\":\"string\"},\"append_wq\":{\"type\":\"boolean\"}},\"required\":[\"text1\",\"text2\",\"text3\"]}}";
+    out = out + ",{\"name\":\"diff3_demo\",\"description\":\"Run built-in multi-scenario 3-way reconciliation demonstration.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"json_mode\":{\"type\":\"boolean\"}}}}";
+    out = out + "]}}\n";
+    return out;
+}
+
+pub fn handle_mcp_call(id: String, tool_name: String, req: String) -> String {
+    if tool_name == "diff3_demo" {
+        let json_mode: Bool = json_extract_bool_field(req, "json_mode", false);
+        return build_tool_result(id, run_synthetic_demo(json_mode, false));
+    }
+
+    let t1: String = json_extract_str_field(req, "text1");
+    let t2: String = json_extract_str_field(req, "text2");
+    let t3: String = json_extract_str_field(req, "text3");
+
+    let mine: List[String] = split_lines(t1);
+    let base: List[String] = split_lines(t2);
+    let yours: List[String] = split_lines(t3);
+
+    let chunks: List[Chunk3] = reconcile_3way(base, mine, yours);
+
+    let mut opts: Diff3Opts = default_diff3_opts();
+    opts.label1 = json_extract_str_field(req, "label1");
+    opts.label2 = json_extract_str_field(req, "label2");
+    opts.label3 = json_extract_str_field(req, "label3");
+    opts.file1 = if opts.label1 != "" { opts.label1 } else { "mine" };
+    opts.file2 = if opts.label2 != "" { opts.label2 } else { "base" };
+    opts.file3 = if opts.label3 != "" { opts.label3 } else { "yours" };
+
+    let m_param: String = json_extract_str_field(req, "mode");
+    if chars_len(m_param) > 0 {
+        opts.overlap_mode = m_param;
+    }
+
+    if tool_name == "diff3_merge" {
+        opts.merge_mode = true;
+        let merged: String = render_merge(chunks, opts);
+        return build_tool_result(id, merged);
+    }
+
+    if tool_name == "diff3_compare" {
+        let init_tab: Bool = json_extract_bool_field(req, "initial_tab", false);
+        let formatted: String = render_diff3_format(chunks, init_tab);
+        return build_tool_result(id, formatted);
+    }
+
+    if tool_name == "diff3_conflicts" {
+        return build_tool_result(id, render_json_stream(chunks));
+    }
+
+    if tool_name == "diff3_ed_script" {
+        opts.append_wq = json_extract_bool_field(req, "append_wq", false);
+        let ed_out: String = render_ed_script(chunks, opts);
+        return build_tool_result(id, ed_out);
+    }
+
+    return build_error(id, -32601, "Method or tool not found: " + tool_name);
+}
+
+pub fn handle_mcp_message(req: String) -> String {
+    let id_str: String = json_extract_str_field(req, "id");
+    let id_int: Int = json_extract_int_field(req, "id", -1);
+    let id: String = if chars_len(id_str) > 0 {
+        "\"" + id_str + "\""
+    } else if id_int >= 0 {
+        id_int.to_string()
+    } else {
+        "1"
+    };
+    let method: String = json_extract_str_field(req, "method");
+
+    if method == "initialize" {
+        return render_mcp_init(id);
+    }
+    if method == "notifications/initialized" {
+        return "";
+    }
+    if method == "tools/list" {
+        return render_mcp_tools_list(id);
+    }
+    if method == "tools/call" {
+        let tool_name: String = json_extract_str_field(req, "name");
+        return handle_mcp_call(id, tool_name, req);
+    }
+    if method == "shutdown" {
+        return "{\"jsonrpc\":\"2.0\",\"id\":" + id + ",\"result\":null}\n";
+    }
+    return build_error(id, -32601, "Method not found: " + method);
+}
+
+pub fn run_mcp_server(fr: &FsReadCap) {
+    let mut buf: String = "";
+    let mut running: Bool = true;
+    while running {
+        let r: Result[String, String] = oo_read_stdin_chunk(fr, 4096);
+        if !r.is_ok() {
+            running = false;
+        } else {
+            let chunk: String = match r { Ok(s) => s, Err(_) => "" };
+            if chars_len(chunk) == 0 {
+                running = false;
+            } else {
+                buf = buf + chunk;
+                let mut nl_pos: Int = find_sub_char(buf, "\n");
+                while nl_pos >= 0 {
+                    let line: String = str_slice(buf, 0, nl_pos);
+                    buf = str_slice(buf, nl_pos + 1, chars_len(buf));
+                    let trimmed: String = str_trim(line);
+                    if chars_len(trimmed) > 0 {
+                        let resp: String = handle_mcp_message(trimmed);
+                        if chars_len(resp) > 0 {
+                            print(resp);
+                        }
+                    }
+                    nl_pos = find_sub_char(buf, "\n");
+                }
+            }
+        }
+    }
+}

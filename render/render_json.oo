@@ -1,0 +1,101 @@
+// # JSON Stream Serializer
+//
+// Logline: Emits structured JSON Lines representation of 3-way chunks and reconciliation metrics.
+//
+// Setup: Serializes hunk boundaries, line contents, and conflict telemetry to stdout.
+//
+// Beats:
+//   1. Escape strings and special control characters safely.
+//   2. Serialize lists of lines into JSON arrays.
+//   3. Format per-chunk telemetry records.
+//   4. Emit comprehensive reconciliation summary object.
+
+import "core/diff3_types.oo";
+
+pub fn escape_json(s: String) -> String {
+    let n: Int = chars_len(s);
+    let mut out: String = "";
+    let mut i: Int = 0;
+    while i < n {
+        let c: String = str_slice(s, i, i + 1);
+        if c == "\"" {
+            out = out + "\\\"";
+        } else if c == "\\" {
+            out = out + "\\\\";
+        } else if c == "\n" {
+            out = out + "\\n";
+        } else if c == "\t" {
+            out = out + "\\t";
+        } else if c == "\r" {
+            out = out + "\\r";
+        } else {
+            out = out + c;
+        }
+        i = i + 1;
+    }
+    return out;
+}
+
+pub fn string_list_to_json(lines: List[String]) -> String {
+    let mut s: String = "[";
+    let n: Int = list_len(lines);
+    let mut i: Int = 0;
+    while i < n {
+        if i > 0 { s = s + ","; }
+        s = s + "\"" + escape_json(list_get(lines, i)) + "\"";
+        i = i + 1;
+    }
+    s = s + "]";
+    return s;
+}
+
+pub fn chunk_to_json(c: Chunk3, index: Int) -> String {
+    let mut s: String = "{";
+    s = s + "\"chunk\":" + index.to_string() + ",";
+    s = s + "\"kind\":\"" + escape_json(c.kind) + "\",";
+    s = s + "\"base_start\":" + c.base_start.to_string() + ",";
+    s = s + "\"base_count\":" + c.base_count.to_string() + ",";
+    s = s + "\"a_start\":" + c.a_start.to_string() + ",";
+    s = s + "\"a_count\":" + c.a_count.to_string() + ",";
+    s = s + "\"b_start\":" + c.b_start.to_string() + ",";
+    s = s + "\"b_count\":" + c.b_count.to_string() + ",";
+    s = s + "\"conflict\":" + (if is_conflict(c) { "true" } else { "false" }) + ",";
+    s = s + "\"base_lines\":" + string_list_to_json(c.base_lines) + ",";
+    s = s + "\"a_lines\":" + string_list_to_json(c.a_lines) + ",";
+    s = s + "\"b_lines\":" + string_list_to_json(c.b_lines);
+    s = s + "}";
+    return s;
+}
+
+pub fn render_json_stream(chunks: List[Chunk3]) -> String {
+    let mut out: String = "";
+    let n: Int = list_len(chunks);
+    let mut i: Int = 0;
+    let mut matches: Int = 0;
+    let mut diff_a: Int = 0;
+    let mut diff_b: Int = 0;
+    let mut false_conflicts: Int = 0;
+    let mut conflicts: Int = 0;
+
+    while i < n {
+        let c: Chunk3 = list_get(chunks, i);
+        out = out + chunk_to_json(c, i + 1) + "\n";
+        if c.kind == "MATCH" { matches = matches + 1; }
+        else if c.kind == "DIFF_A" { diff_a = diff_a + 1; }
+        else if c.kind == "DIFF_B" { diff_b = diff_b + 1; }
+        else if c.kind == "DIFF_BOTH_SAME" { false_conflicts = false_conflicts + 1; }
+        else if c.kind == "DIFF_CONFLICT" { conflicts = conflicts + 1; }
+        i = i + 1;
+    }
+
+    let summary: String = "{\"tool\":\"oodiff3\",\"version\":\"0.2.0\","
+        + "\"total_chunks\":" + n.to_string() + ","
+        + "\"matches\":" + matches.to_string() + ","
+        + "\"diff_a\":" + diff_a.to_string() + ","
+        + "\"diff_b\":" + diff_b.to_string() + ","
+        + "\"false_conflicts\":" + false_conflicts.to_string() + ","
+        + "\"conflicts\":" + conflicts.to_string() + ","
+        + "\"has_conflicts\":" + (if conflicts > 0 { "true" } else { "false" }) + "}\n";
+
+    return out + summary;
+}

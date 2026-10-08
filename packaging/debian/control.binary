@@ -1,0 +1,7 @@
+Package: oodiff3
+Version: 0.2.0-1
+Section: utils
+Priority: optional
+Architecture: amd64
+Maintainer: openOODA-tools <ops@openooda.org>
+Description: Sovereign 3-way file reconciliation and conflict merger in pure openOODA.

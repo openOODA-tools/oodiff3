@@ -1,0 +1,110 @@
+// # Diff3 Types and Structures
+//
+// Logline: Data structures representing 3-way comparison options, hunks, and reconciled chunks.
+//
+// Setup: Demands pure type definitions with deterministic defaults and query helpers.
+//
+// Beats:
+//   1. Define Diff3Opts configuration structure for CLI and MCP execution.
+//   2. Define Hunk representation for 2-way delta spans against base ancestor.
+//   3. Define Chunk3 representation for aligned 3-way reconciliation blocks.
+//   4. Expose query and helper constructors.
+
+pub type Diff3Opts = struct {
+    merge_mode: Bool,
+    overlap_mode: String,
+    append_wq: Bool,
+    initial_tab: Bool,
+    text_mode: Bool,
+    label1: String,
+    label2: String,
+    label3: String,
+    json_mode: Bool,
+    demo_mode: Bool,
+    color_mode: String,
+    theme_name: String,
+    file1: String,
+    file2: String,
+    file3: String
+};
+
+pub type Hunk = struct {
+    base_start: Int,
+    base_count: Int,
+    repl_lines: List[String]
+};
+
+pub type Chunk3 = struct {
+    kind: String,
+    base_start: Int,
+    base_count: Int,
+    a_start: Int,
+    a_count: Int,
+    b_start: Int,
+    b_count: Int,
+    base_lines: List[String],
+    a_lines: List[String],
+    b_lines: List[String]
+};
+
+pub fn default_diff3_opts() -> Diff3Opts {
+    return Diff3Opts {
+        merge_mode: false,
+        overlap_mode: "default",
+        append_wq: false,
+        initial_tab: false,
+        text_mode: false,
+        label1: "",
+        label2: "",
+        label3: "",
+        json_mode: false,
+        demo_mode: false,
+        color_mode: "auto",
+        theme_name: "ember",
+        file1: "",
+        file2: "",
+        file3: ""
+    };
+}
+
+pub fn make_hunk(base_start: Int, base_count: Int, repl_lines: List[String]) -> Hunk {
+    return Hunk {
+        base_start: base_start,
+        base_count: base_count,
+        repl_lines: repl_lines
+    };
+}
+
+pub fn make_chunk3(
+    kind: String,
+    base_start: Int,
+    base_count: Int,
+    a_start: Int,
+    a_count: Int,
+    b_start: Int,
+    b_count: Int,
+    base_lines: List[String],
+    a_lines: List[String],
+    b_lines: List[String]
+) -> Chunk3 {
+    return Chunk3 {
+        kind: kind,
+        base_start: base_start,
+        base_count: base_count,
+        a_start: a_start,
+        a_count: a_count,
+        b_start: b_start,
+        b_count: b_count,
+        base_lines: base_lines,
+        a_lines: a_lines,
+        b_lines: b_lines
+    };
+}
+
+pub fn is_conflict(c: Chunk3) -> Bool {
+    return c.kind == "DIFF_CONFLICT";
+}
+
+pub fn is_match(c: Chunk3) -> Bool {
+    return c.kind == "MATCH";
+}

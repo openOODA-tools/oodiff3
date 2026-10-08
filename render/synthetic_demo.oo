@@ -1,0 +1,70 @@
+// # Synthetic 3-Way Reconciliation Showcase
+//
+// Logline: Generates multi-scenario demonstrations of 3-way merging and conflict handling.
+//
+// Setup: Demands pure deterministic data generators across unconflicted and conflicting scenes.
+//
+// Beats:
+//   1. Build synthetic ancestral baseline, mine branch, and yours branch.
+//   2. Demonstrate clean unconflicted branch reconciliation.
+//   3. Demonstrate false conflict automatic resolution.
+//   4. Demonstrate true conflict detection with standard bracket markers.
+
+import "core/diff3_types.oo";
+import "core/diff3_engine.oo";
+import "core/diff3_format.oo";
+import "core/diff3_merge.oo";
+import "render/render_ansi.oo";
+import "render/render_json.oo";
+
+pub fn run_synthetic_demo(json_mode: Bool, enable_color: Bool) -> String {
+    let mut base: List[String] = list_new();
+    base = list_push(base, "package system.config");
+    base = list_push(base, "const RETRIES: Int = 3;");
+    base = list_push(base, "const TIMEOUT_MS: Int = 1000;");
+    base = list_push(base, "const THEME: String = \"default\";");
+    base = list_push(base, "fn init() -> Void { setup(); }");
+
+    let mut mine: List[String] = list_new();
+    mine = list_push(mine, "package system.config");
+    mine = list_push(mine, "const RETRIES: Int = 5;"); // Clean change A
+    mine = list_push(mine, "const TIMEOUT_MS: Int = 1000;");
+    mine = list_push(mine, "const THEME: String = \"ember\";"); // Conflict with B
+    mine = list_push(mine, "fn init() -> Void { setup(); }");
+
+    let mut yours: List[String] = list_new();
+    yours = list_push(yours, "package system.config");
+    yours = list_push(yours, "const RETRIES: Int = 3;");
+    yours = list_push(yours, "const TIMEOUT_MS: Int = 2500;"); // Clean change B
+    yours = list_push(yours, "const THEME: String = \"ocean\";"); // Conflict with A
+    yours = list_push(yours, "fn init() -> Void { setup(); }");
+
+    let chunks: List[Chunk3] = reconcile_3way(base, mine, yours);
+
+    if json_mode {
+        return render_json_stream(chunks);
+    }
+
+    let mut banner: String = "=================================================================\n";
+    banner = banner + "  SOVEREIGN 3-WAY RECONCILIATION SHOWCASE (oodiff3 0.2.0)\n";
+    banner = banner + "=================================================================\n\n";
+
+    let mut opts: Diff3Opts = default_diff3_opts();
+    opts.file1 = "branch_mine.oo";
+    opts.file2 = "ancestor_base.oo";
+    opts.file3 = "branch_yours.oo";
+    opts.merge_mode = true;
+
+    let mut out: String = banner;
+    out = out + style_hunk_header("--- [1] Standard POSIX diff3 Comparison ---", enable_color) + "\n";
+    out = out + render_diff3_format(chunks, false) + "\n";
+
+    out = out + style_hunk_header("--- [2] 3-Way Merged Output with Conflict Markers ---", enable_color) + "\n";
+    out = out + render_merge(chunks, opts) + "\n";
+
+    out = out + style_hunk_header("--- [3] Reconciliation Summary ---", enable_color) + "\n";
+    out = out + "Total chunks evaluated : " + list_len(chunks).to_string() + "\n";
+    out = out + "Conflict status        : " + (if has_conflicts(chunks) { style_conflict_head("CONFLICT DETECTED (Exit 1)", enable_color) } else { style_add("CLEAN MERGE (Exit 0)", enable_color) }) + "\n";
+
+    return out;
+}

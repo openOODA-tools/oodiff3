@@ -1,0 +1,63 @@
+// # Core Module Anchor
+//
+// Logline: Unified entry point and substrate verification anchor for diff3 core engines.
+//
+// Setup: Exports diff types, diff calculation, 3-way reconciliation, merge, and ed scripts.
+//
+// Beats:
+//   1. Re-export Diff3 types, engines, and renderers.
+//   2. Run deterministic internal anchor tests validating 3-way reconciliation.
+//   3. Assert clean merge, false conflict resolution, and conflict marker insertion.
+
+import "core/diff3_types.oo";
+import "core/lcs_diff.oo";
+import "core/diff3_engine.oo";
+import "core/diff3_format.oo";
+import "core/diff3_merge.oo";
+import "core/ed_script.oo";
+
+pub fn run_core_tests() -> Bool {
+    return test_core();
+}
+
+pub fn test_core() -> Bool {
+    let mut base: List[String] = list_new();
+    base = list_push(base, "header");
+    base = list_push(base, "middle");
+    base = list_push(base, "footer");
+
+    let mut mine: List[String] = list_new();
+    mine = list_push(mine, "header");
+    mine = list_push(mine, "mine_middle");
+    mine = list_push(mine, "footer");
+
+    let mut yours: List[String] = list_new();
+    yours = list_push(yours, "header");
+    yours = list_push(yours, "yours_middle");
+    yours = list_push(yours, "footer");
+
+    let chunks: List[Chunk3] = reconcile_3way(base, mine, yours);
+    if list_len(chunks) < 3 { return false; }
+    if !has_conflicts(chunks) { return false; }
+
+    let mut opts: Diff3Opts = default_diff3_opts();
+    opts.file1 = "file1.txt";
+    opts.file2 = "file2.txt";
+    opts.file3 = "file3.txt";
+    opts.merge_mode = true;
+
+    let merged: String = render_merge(chunks, opts);
+    if !str_contains(merged, "<<<<<<< file1.txt") { return false; }
+    if !str_contains(merged, "||||||| file2.txt") { return false; }
+    if !str_contains(merged, "=======") { return false; }
+    if !str_contains(merged, ">>>>>>> file3.txt") { return false; }
+
+    // Test false conflict (identical change on both sides)
+    let chunks_same: List[Chunk3] = reconcile_3way(base, mine, mine);
+    if has_conflicts(chunks_same) { return false; }
+    let merged_same: String = render_merge(chunks_same, opts);
+    if str_contains(merged_same, "<<<<<<<") { return false; }
+    if !str_contains(merged_same, "mine_middle") { return false; }
+
+    return true;
+}

@@ -1,0 +1,210 @@
+// # Myers LCS Delta Engine
+//
+// Logline: Computes minimal edit script and hunk groupings between base ancestor and branch.
+//
+// Setup: Demands two lists of lines and produces structured hunk boundaries.
+//
+// Beats:
+//   1. Build Myers diagonal search frontier over line sequences.
+//   2. Backtrack snake history to resolve insert, delete, and equal runs.
+//   3. Group contiguous edits into structured Hunk records.
+//   4. Guarantee deterministic output across identical inputs.
+
+import "core/diff3_types.oo";
+
+type EditOp = struct {
+    tag: Int,
+    base_idx: Int,
+    other_idx: Int,
+    text: String
+};
+
+fn op_eq() -> Int { return 0; }
+fn op_del() -> Int { return 1; }
+fn op_ins() -> Int { return 2; }
+
+fn make_v(size: Int) -> List[Int] {
+    let mut v: List[Int] = list_new();
+    let mut i: Int = 0;
+    while i < size {
+        v = list_push(v, 0);
+        i = i + 1;
+    }
+    return v;
+}
+
+fn copy_v(src: List[Int]) -> List[Int] {
+    let mut c: List[Int] = list_new();
+    let n: Int = list_len(src);
+    let mut i: Int = 0;
+    while i < n {
+        c = list_push(c, list_get(src, i));
+        i = i + 1;
+    }
+    return c;
+}
+
+fn simple_diff(base: List[String], other: List[String]) -> List[EditOp] {
+    let mut ops: List[EditOp] = list_new();
+    let nb: Int = list_len(base);
+    let no: Int = list_len(other);
+    let mut i: Int = 0;
+    while i < nb {
+        ops = list_push(ops, EditOp { tag: op_del(), base_idx: i, other_idx: -1, text: list_get(base, i) });
+        i = i + 1;
+    }
+    let mut j: Int = 0;
+    while j < no {
+        ops = list_push(ops, EditOp { tag: op_ins(), base_idx: -1, other_idx: j, text: list_get(other, j) });
+        j = j + 1;
+    }
+    return ops;
+}
+
+pub fn solve_lcs_ops(base: List[String], other: List[String]) -> List[EditOp] {
+    let nb: Int = list_len(base);
+    let no: Int = list_len(other);
+    if nb == 0 && no == 0 { return list_new(); }
+    if nb == 0 || no == 0 { return simple_diff(base, other); }
+
+    let max_d: Int = nb + no;
+    let budget: Int = if max_d > 2000 { 2000 } else { max_d };
+    let v_size: Int = 2 * max_d + 1;
+    let offset: Int = max_d;
+
+    let mut v: List[Int] = make_v(v_size);
+    let mut history: List[List[Int]] = list_new();
+
+    let mut init_x: Int = 0;
+    while init_x < nb && init_x < no && list_get(base, init_x) == list_get(other, init_x) {
+        init_x = init_x + 1;
+    }
+    v = list_set(v, offset, init_x);
+    history = list_push(history, v);
+
+    if init_x >= nb && init_x >= no {
+        let mut same_ops: List[EditOp] = list_new();
+        let mut k: Int = 0;
+        while k < nb {
+            same_ops = list_push(same_ops, EditOp { tag: op_eq(), base_idx: k, other_idx: k, text: list_get(base, k) });
+            k = k + 1;
+        }
+        return same_ops;
+    }
+
+    let mut final_d: Int = 0;
+    let mut reached: Bool = false;
+    let mut d: Int = 1;
+    while d <= budget && !reached {
+        let prev_v: List[Int] = list_get(history, d - 1);
+        let mut curr_v: List[Int] = copy_v(prev_v);
+        let mut k_val: Int = 0 - d;
+        while k_val <= d && !reached {
+            let k_idx: Int = k_val + offset;
+            let mut x: Int = 0;
+            if k_val == 0 - d || (k_val != d && list_get(prev_v, k_idx - 1) < list_get(prev_v, k_idx + 1)) {
+                x = list_get(prev_v, k_idx + 1);
+            } else {
+                x = list_get(prev_v, k_idx - 1) + 1;
+            }
+            let mut y: Int = x - k_val;
+            while x < nb && y < no && list_get(base, x) == list_get(other, y) {
+                x = x + 1;
+                y = y + 1;
+            }
+            curr_v = list_set(curr_v, k_idx, x);
+            if x >= nb && y >= no {
+                reached = true;
+                final_d = d;
+            }
+            k_val = k_val + 2;
+        }
+        history = list_push(history, curr_v);
+        d = d + 1;
+    }
+
+    if !reached {
+        return simple_diff(base, other);
+    }
+
+    let mut rev_ops: List[EditOp] = list_new();
+    let mut cur_x: Int = nb;
+    let mut cur_y: Int = no;
+    let mut step_d: Int = final_d;
+
+    while step_d > 0 {
+        let hist_prev: List[Int] = list_get(history, step_d - 1);
+        let cur_k: Int = cur_x - cur_y;
+        let k_idx: Int = cur_k + offset;
+        let prev_k: Int = if cur_k == (0 - step_d) || (cur_k != step_d && list_get(hist_prev, k_idx - 1) < list_get(hist_prev, k_idx + 1)) {
+            cur_k + 1
+        } else {
+            cur_k - 1
+        };
+        let prev_x: Int = list_get(hist_prev, prev_k + offset);
+        let prev_y: Int = prev_x - prev_k;
+
+        while cur_x > prev_x && cur_y > prev_y && cur_x > 0 && cur_y > 0 && list_get(base, cur_x - 1) == list_get(other, cur_y - 1) {
+            rev_ops = list_push(rev_ops, EditOp { tag: op_eq(), base_idx: cur_x - 1, other_idx: cur_y - 1, text: list_get(base, cur_x - 1) });
+            cur_x = cur_x - 1;
+            cur_y = cur_y - 1;
+        }
+
+        if step_d > 0 {
+            if cur_x == prev_x {
+                rev_ops = list_push(rev_ops, EditOp { tag: op_ins(), base_idx: -1, other_idx: cur_y - 1, text: list_get(other, cur_y - 1) });
+                cur_y = cur_y - 1;
+            } else {
+                rev_ops = list_push(rev_ops, EditOp { tag: op_del(), base_idx: cur_x - 1, other_idx: -1, text: list_get(base, cur_x - 1) });
+                cur_x = cur_x - 1;
+            }
+        }
+        step_d = step_d - 1;
+    }
+
+    while cur_x > 0 && cur_y > 0 && list_get(base, cur_x - 1) == list_get(other, cur_y - 1) {
+        rev_ops = list_push(rev_ops, EditOp { tag: op_eq(), base_idx: cur_x - 1, other_idx: cur_y - 1, text: list_get(base, cur_x - 1) });
+        cur_x = cur_x - 1;
+        cur_y = cur_y - 1;
+    }
+
+    let mut forward_ops: List[EditOp] = list_new();
+    let mut ri: Int = list_len(rev_ops) - 1;
+    while ri >= 0 {
+        forward_ops = list_push(forward_ops, list_get(rev_ops, ri));
+        ri = ri - 1;
+    }
+    return forward_ops;
+}
+
+pub fn compute_lcs_hunks(base: List[String], other: List[String]) -> List[Hunk] {
+    let ops: List[EditOp] = solve_lcs_ops(base, other);
+    let mut hunks: List[Hunk] = list_new();
+    let num_ops: Int = list_len(ops);
+    let mut idx: Int = 0;
+    let mut cur_base: Int = 0;
+
+    while idx < num_ops {
+        let op: EditOp = list_get(ops, idx);
+        if op.tag == op_eq() {
+            cur_base = op.base_idx + 1;
+            idx = idx + 1;
+        } else {
+            let hunk_start: Int = cur_base;
+            let mut repl_lines: List[String] = list_new();
+            let mut del_count: Int = 0;
+            while idx < num_ops && list_get(ops, idx).tag != op_eq() {
+                let sub: EditOp = list_get(ops, idx);
+                if sub.tag == op_del() {
+                    del_count = del_count + 1;
+                    cur_base = cur_base + 1;
+                } else if sub.tag == op_ins() {
+                    repl_lines = list_push(repl_lines, sub.text);
+                }
+                idx = idx + 1;
+            }
+            hunks = list_push(hunks, make_hunk(hunk_start, del_count, repl_lines));
+        }
+    }
+    return hunks;
+}

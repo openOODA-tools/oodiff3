@@ -1,0 +1,97 @@
+// # Ed Script Generator
+//
+// Logline: Generates standard ed editing scripts reconciling file 1 with divergent changes.
+//
+// Setup: Emits reverse line-ordered ed commands (a, c, d) with optional wq termination.
+//
+// Beats:
+//   1. Filter chunks by active ed selection mode (-e, -3, -x, -X, -A, -E).
+//   2. Generate bottom-up coordinates to preserve prefix line numbering.
+//   3. Wrap overlapping conflicts in markers when bracketed mode is enabled.
+//   4. Append save and quit instructions when -i is specified.
+
+import "core/diff3_types.oo";
+
+fn append_lines(dest: String, lines: List[String]) -> String {
+    let mut out: String = dest;
+    let n: Int = list_len(lines);
+    let mut i: Int = 0;
+    while i < n {
+        out = out + list_get(lines, i) + "\n";
+        i = i + 1;
+    }
+    return out;
+}
+
+pub fn render_ed_script(chunks: List[Chunk3], opts: Diff3Opts) -> String {
+    let mut out: String = "";
+    let n: Int = list_len(chunks);
+    let mut i: Int = n - 1;
+
+    while i >= 0 {
+        let c: Chunk3 = list_get(chunks, i);
+        let is_diff_b: Bool = c.kind == "DIFF_B";
+        let is_conflict_chunk: Bool = c.kind == "DIFF_CONFLICT";
+
+        let include: Bool = if opts.overlap_mode == "easy_only" {
+            is_diff_b
+        } else if opts.overlap_mode == "overlap_only" || opts.overlap_mode == "bracket_overlap" {
+            is_conflict_chunk
+        } else {
+            is_diff_b || is_conflict_chunk
+        };
+
+        if include {
+            let start_line: Int = c.a_start;
+            let count: Int = c.a_count;
+
+            if is_conflict_chunk && (opts.overlap_mode == "bracket_overlap" || opts.overlap_mode == "show_all" || opts.overlap_mode == "show_overlap") {
+                let lbl1: String = if opts.label1 != "" { opts.label1 } else { opts.file1 };
+                let lbl2: String = if opts.label2 != "" { opts.label2 } else { opts.file2 };
+                let lbl3: String = if opts.label3 != "" { opts.label3 } else { opts.file3 };
+
+                // Insert conflict marker block
+                out = out + (start_line + count).to_string() + "a\n";
+                if opts.overlap_mode == "show_all" {
+                    out = out + "||||||| " + lbl2 + "\n";
+                    out = append_lines(out, c.base_lines);
+                }
+                out = out + "=======\n";
+                out = append_lines(out, c.b_lines);
+                out = out + ">>>>>>> " + lbl3 + "\n.\n";
+                out = out + start_line.to_string() + "a\n";
+                out = out + "<<<<<<< " + lbl1 + "\n.\n";
+            } else {
+                let repl_lines: List[String] = c.b_lines;
+                let repl_count: Int = list_len(repl_lines);
+
+                if count == 0 {
+                    out = out + start_line.to_string() + "a\n";
+                    out = append_lines(out, repl_lines);
+                    out = out + ".\n";
+                } else if repl_count == 0 {
+                    if count == 1 {
+                        out = out + (start_line + 1).to_string() + "d\n";
+                    } else {
+                        out = out + (start_line + 1).to_string() + "," + (start_line + count).to_string() + "d\n";
+                    }
+                } else {
+                    if count == 1 {
+                        out = out + (start_line + 1).to_string() + "c\n";
+                    } else {
+                        out = out + (start_line + 1).to_string() + "," + (start_line + count).to_string() + "c\n";
+                    }
+                    out = append_lines(out, repl_lines);
+                    out = out + ".\n";
+                }
+            }
+        }
+        i = i - 1;
+    }
+
+    if opts.append_wq {
+        out = out + "w\nq\n";
+    }
+
+    return out;
+}
